@@ -242,6 +242,10 @@ uploaded_file = st.file_uploader(
 
 MAX_FILE_SIZE_MB = 500
 
+if uploaded_file is None:
+    st.info("📤 Please upload a lecture recording to continue.")
+    st.stop()
+
 if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
 
     st.error(
@@ -509,12 +513,12 @@ if "transcript" in st.session_state:
         )
 
     # ==================================================
-# QUIZ
-# ==================================================
+    # QUIZ
+    # ==================================================
 
-with tab3:
+    with tab3:
 
-    st.subheader("🧠 Test Your Knowledge")
+        st.subheader("🧠 Test Your Knowledge")
 
     st.caption(
         "Answer the questions generated from your lecture."
@@ -558,199 +562,199 @@ with tab3:
         st.divider()
 
 
-    # ----------------------------------------------
-    # Submit quiz
-    # ----------------------------------------------
+        # ----------------------------------------------
+        # Submit quiz
+        # ----------------------------------------------
 
-    if st.button(
-        "📊 Submit Quiz",
-        type="primary",
-        use_container_width=True
-    ):
-
-        score = 0
-        unanswered = 0
-
-        for index, question_data in enumerate(
-            quiz,
-            start=1
+        if st.button(
+            "📊 Submit Quiz",
+            type="primary",
+            use_container_width=True
         ):
 
-            selected_answer = st.session_state.get(
-                f"selected_answer_{index}"
-            )
+            score = 0
+            unanswered = 0
 
-            if selected_answer is None:
+            for index, question_data in enumerate(
+                quiz,
+                start=1
+            ):
 
-                unanswered += 1
-
-            elif selected_answer == question_data[
-                "correct_answer"
-            ]:
-
-                score += 1
-
-
-        st.session_state["quiz_score"] = score
-        st.session_state["quiz_unanswered"] = unanswered
-        st.session_state["quiz_submitted"] = True
-
-
-    # ----------------------------------------------
-    # Display score
-    # ----------------------------------------------
-
-    if st.session_state.get("quiz_submitted"):
-
-        score = st.session_state["quiz_score"]
-
-        unanswered = st.session_state.get(
-            "quiz_unanswered",
-            0
-        )
-
-        total = len(quiz)
-
-        percentage = (score / total) * 100
-
-
-        st.divider()
-
-        st.subheader("📊 Your Result")
-
-        result_col1, result_col2, result_col3 = st.columns(3)
-
-
-        with result_col1:
-
-            st.metric(
-                "Score",
-                f"{score}/{total}"
-            )
-
-
-        with result_col2:
-
-            st.metric(
-                "Percentage",
-                f"{percentage:.0f}%"
-            )
-
-
-        with result_col3:
-
-            st.metric(
-                "Unanswered",
-                unanswered
-            )
-
-
-        # ------------------------------------------
-        # Result message
-        # ------------------------------------------
-
-        if percentage >= 80:
-
-            st.success(
-                "🎉 Excellent! You have a strong "
-                "understanding of the lecture."
-            )
-
-        elif percentage >= 60:
-
-            st.info(
-                "👍 Good job! Review the key concepts "
-                "to strengthen your understanding."
-            )
-
-        else:
-
-            st.warning(
-                "📚 Consider reviewing the summary "
-                "and key concepts before trying again."
-            )
-
-
-        # ------------------------------------------
-        # Detailed answers
-        # ------------------------------------------
-
-        st.divider()
-
-        st.subheader("📋 Answer Review")
-
-        for index, question_data in enumerate(
-            quiz,
-            start=1
-        ):
-
-            selected_answer = st.session_state.get(
-                f"selected_answer_{index}"
-            )
-
-            correct_answer = question_data[
-                "correct_answer"
-            ]
-
-            st.markdown(
-                f"**{index}. "
-                f"{question_data['question']}**"
-            )
-
-            if selected_answer is None:
-
-                st.warning(
-                    "⚠️ Not answered"
+                selected_answer = st.session_state.get(
+                    f"selected_answer_{index}"
                 )
 
-            elif selected_answer == correct_answer:
+                if selected_answer is None:
+
+                    unanswered += 1
+
+                elif selected_answer == question_data[
+                    "correct_answer"
+                ]:
+
+                    score += 1
+
+
+            st.session_state["quiz_score"] = score
+            st.session_state["quiz_unanswered"] = unanswered
+            st.session_state["quiz_submitted"] = True
+
+
+        # ----------------------------------------------
+        # Display score
+        # ----------------------------------------------
+
+        if st.session_state.get("quiz_submitted"):
+
+            score = st.session_state["quiz_score"]
+
+            unanswered = st.session_state.get(
+                "quiz_unanswered",
+                0
+            )
+
+            total = len(quiz)
+
+            percentage = (score / total) * 100
+
+
+            st.divider()
+
+            st.subheader("📊 Your Result")
+
+            result_col1, result_col2, result_col3 = st.columns(3)
+
+
+            with result_col1:
+
+                st.metric(
+                    "Score",
+                    f"{score}/{total}"
+                )
+
+
+            with result_col2:
+
+                st.metric(
+                    "Percentage",
+                    f"{percentage:.0f}%"
+                )
+
+
+            with result_col3:
+
+                st.metric(
+                    "Unanswered",
+                    unanswered
+                )
+
+
+            # ------------------------------------------
+            # Result message
+            # ------------------------------------------
+
+            if percentage >= 80:
 
                 st.success(
-                    "✅ Correct"
+                    "🎉 Excellent! You have a strong "
+                    "understanding of the lecture."
+                )
+
+            elif percentage >= 60:
+
+                st.info(
+                    "👍 Good job! Review the key concepts "
+                    "to strengthen your understanding."
                 )
 
             else:
 
-                st.error(
-                    "❌ Incorrect"
+                st.warning(
+                    "📚 Consider reviewing the summary "
+                    "and key concepts before trying again."
                 )
 
-                st.write(
-                    f"Your answer: {selected_answer}"
-                )
 
-            st.write(
-                f"Correct answer: **{correct_answer}**"
-            )
-
-            st.write(
-                f"Explanation: "
-                f"{question_data['explanation']}"
-            )
+            # ------------------------------------------
+            # Detailed answers
+            # ------------------------------------------
 
             st.divider()
 
+            st.subheader("📋 Answer Review")
 
-        # ------------------------------------------
-        # Try again
-        # ------------------------------------------
+            for index, question_data in enumerate(
+                quiz,
+                start=1
+            ):
 
-        if st.button(
-            "🔄 Try Quiz Again"
-        ):
-
-            st.session_state["quiz_submitted"] = False
-            st.session_state["quiz_score"] = 0
-            st.session_state["quiz_unanswered"] = 0
-
-            for index in range(1, len(quiz) + 1):
-
-                st.session_state.pop(
-                    f"selected_answer_{index}",
-                    None
+                selected_answer = st.session_state.get(
+                    f"selected_answer_{index}"
                 )
 
-            st.rerun()
+                correct_answer = question_data[
+                    "correct_answer"
+                ]
+
+                st.markdown(
+                    f"**{index}. "
+                    f"{question_data['question']}**"
+                )
+
+                if selected_answer is None:
+
+                    st.warning(
+                        "⚠️ Not answered"
+                    )
+
+                elif selected_answer == correct_answer:
+
+                    st.success(
+                        "✅ Correct"
+                    )
+
+                else:
+
+                    st.error(
+                        "❌ Incorrect"
+                    )
+
+                    st.write(
+                        f"Your answer: {selected_answer}"
+                    )
+
+                st.write(
+                    f"Correct answer: **{correct_answer}**"
+                )
+
+                st.write(
+                    f"Explanation: "
+                    f"{question_data['explanation']}"
+                )
+
+                st.divider()
+
+
+            # ------------------------------------------
+            # Try again
+            # ------------------------------------------
+
+            if st.button(
+                "🔄 Try Quiz Again"
+            ):
+
+                st.session_state["quiz_submitted"] = False
+                st.session_state["quiz_score"] = 0
+                st.session_state["quiz_unanswered"] = 0
+
+                for index in range(1, len(quiz) + 1):
+
+                    st.session_state.pop(
+                        f"selected_answer_{index}",
+                        None
+                    )
+
+                st.rerun()
    
     # ==================================================
     # ASK LECTURE

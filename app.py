@@ -93,13 +93,13 @@ with st.sidebar:
         """
         **Whisper**
         
-        Speech recognition model used to
+        Pretrained speech recognition model used to
         convert lecture audio into text.
         
-        **Gemini**
+        **Hugging Face Transformers**
         
-        Generative AI model used to create
-        study material and answer questions.
+        Pretrained NLP models used to generate summaries,
+        key concepts, quiz questions, and lecture Q&A.
         """
     )
 
@@ -303,6 +303,8 @@ if uploaded_file is not None:
                 text="Starting lecture processing..."
             )
 
+            st.caption("🔄 Stage 1/3: Whisper is converting the lecture audio to text.")
+
             with st.spinner(
                 "🎤 Whisper is transcribing the lecture..."
             ):
@@ -319,6 +321,7 @@ if uploaded_file is not None:
                 text="✅ Transcription complete. Generating study material..."
             )
 
+            st.caption("🔄 Stage 2/3: Hugging Face is generating the summary and concepts.")
 
             if not transcript:
 
@@ -330,17 +333,26 @@ if uploaded_file is not None:
 
 
             # ======================================
-            # GEMINI
+            # HUGGING FACE NLP PIPELINE
             # ======================================
 
             with st.spinner(
-                "🤖 Gemini is creating your study material..."
+                "🤗 Hugging Face is generating the summary, concepts, and quiz..."
             ):
 
                 study_material = generate_study_material(
                     transcript
                 )
 
+            if "Fallback summary:" in study_material.get("summary", ""):
+                st.warning(
+                    "⚠️ The local Hugging Face summary model is unavailable or too slow in this environment. "
+                    "A transcript-based fallback summary is being shown instead."
+                )
+            else:
+                st.caption("✅ Hugging Face summary and concept extraction completed successfully.")
+
+            st.caption("🔄 Stage 3/3: Finalizing quiz and lecture Q&A output.")
 
             progress.progress(
                 100,

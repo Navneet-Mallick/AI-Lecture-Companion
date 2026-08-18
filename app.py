@@ -133,68 +133,111 @@ if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
 # Process Lecture
 st.success(f"📄 Selected: **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.2f} MB)")
 
+# Save file bytes + name to session so they survive reruns
 if st.button("🚀 Process Lecture", type="primary", use_container_width=True):
+    st.session_state["file_bytes"] = uploaded_file.getbuffer().tobytes()
+    st.session_state["file_name"] = uploaded_file.name
+    # Clear old results
+    for key in ["transcript", "summary", "key_concepts", "quiz", "answer",
+                "quiz_submitted", "quiz_score", "quiz_unanswered"]:
+        st.session_state.pop(key, None)
+    st.session_state["stage"] = "transcribe"
+    st.rerun()
 
-    file_extension = os.path.splitext(uploaded_file.name)[1]
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
-        temp_file.write(uploaded_file.getbuffer())
-        temp_path = temp_file.name
+# Stage-based processing
+stage = st.session_state.get("stage")
+
+if stage == "transcribe":
+    file_bytes = st.session_state.get("file_bytes")
+    file_name = st.session_state.get("file_name", "audio.mp4")
+
+    if not file_bytes:
+        st.error("❌ File data lost. Please re-upload.")
+        st.session_state["stage"] = None
+        st.stop()
+
+    file_extension = os.path.splitext(file_name)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
+        tmp.write(file_bytes)
+        temp_path = tmp.name
 
     try:
-        # Stage 1: Transcription
-        progress = st.progress(0, text="🎤 Transcribing lecture with Whisper...")
-        with st.spinner("🎤 Transcribing..."):
+        with st.spinner("🎤 Transcribing lecture with Whisper..."):
             model = get_whisper_model()
             transcript = transcribe_audio(model, temp_path)
 
         if not transcript:
             st.error("❌ No speech detected in this file.")
+            st.session_state["stage"] = None
             st.stop()
 
         st.session_state["transcript"] = transcript
-        progress.progress(25, text="✅ Transcription complete!")
-        st.success("📝 Transcript ready!")
-
-        # Stage 2: Summary
-        progress.progress(30, text="📖 Generating summary...")
-        with st.spinner("📖 Generating summary..."):
-            summary = generate_summary_only(transcript)
-
-        st.session_state["summary"] = summary
-        progress.progress(50, text="✅ Summary generated!")
-
-        # Stage 3: Key Concepts
-        progress.progress(55, text="🔑 Extracting key concepts...")
-        with st.spinner("🔑 Extracting key concepts..."):
-            key_concepts = generate_concepts_only(transcript, summary)
-
-        st.session_state["key_concepts"] = key_concepts
-        progress.progress(75, text="✅ Key concepts extracted!")
-
-        # Stage 4: Quiz
-        progress.progress(80, text="❓ Generating quiz...")
-        with st.spinner("❓ Generating quiz questions..."):
-            quiz = generate_quiz_only(summary, transcript, key_concepts)
-
-        st.session_state["quiz"] = quiz
-        progress.progress(100, text="✅ All done!")
-
-        st.session_state["answer"] = ""
-        st.success("🎉 Lecture processed successfully!")
+        st.session_state["stage"] = "summary"
+        st.rerun()
 
     except Exception as e:
-        st.error("❌ Something went wrong while processing the lecture.")
+        st.error("❌ Transcription failed.")
         st.exception(e)
+        st.session_state["stage"] = None
 
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+elif stage == "summary":
+    with st.spinner("📖 Generating summary with Gemini..."):
+        try:
+            summary = generate_summary_only(st.session_state["transcript"])
+            st.session_state["summary"] = summary
+            st.session_state["stage"] = "concepts"
+            st.rerun()
+        except Exception as e:
+            st.error("❌ Summary generation failed.")
+            st.exception(e)
+            st.session_state["stage"] = "done"
+
+elif stage == "concepts":
+    with st.spinner("🔑 Extracting key concepts..."):
+        try:
+            key_concepts = generate_concepts_only(
+                st.session_state["transcript"],
+                st.session_state["summary"]
+            )
+            st.session_state["key_concepts"] = key_concepts
+            st.session_state["stage"] = "quiz"
+            st.rerun()
+        except Exception as e:
+            st.error("❌ Concept extraction failed.")
+            st.exception(e)
+            st.session_state["stage"] = "done"
+
+elif stage == "quiz":
+    with st.spinner("❓ Generating quiz questions..."):
+        try:
+            quiz = generate_quiz_only(
+                st.session_state["summary"],
+                st.session_state["transcript"],
+                st.session_state.get("key_concepts")
+            )
+            st.session_state["quiz"] = quiz
+            st.session_state["answer"] = ""
+            st.session_state["stage"] = "done"
+            st.rerun()
+        except Exception as e:
+            st.error("❌ Quiz generation failed.")
+            st.exception(e)
+            st.session_state["stage"] = "done"
+
 
 # Display Results
 if "transcript" in st.session_state:
     transcript = st.session_state["transcript"]
+
+    # Show progress indicator if still processing
+    current_stage = st.session_state.get("stage")
+    if current_stage and current_stage != "done":
+        st.info(f"⏳ Processing in progress... (current: {current_stage})")
 
     st.divider()
     st.markdown('<div class="section-title">📚 Study Material</div>', unsafe_allow_html=True)
@@ -223,7 +266,7 @@ if "transcript" in st.session_state:
             st.subheader("📖 Summary")
             st.write(summary)
         else:
-            st.info("Summary is being generated...")
+            st.info("⏳ Summary is being generated...")
 
         if key_concepts:
             st.divider()
@@ -249,13 +292,15 @@ if "transcript" in st.session_state:
                 file_name="lecture_study_material.txt",
                 mime="text/plain"
             )
+        elif summary:
+            st.info("⏳ Key concepts are being extracted...")
 
     # Tab 3: Quiz
     with tab3:
         quiz = st.session_state.get("quiz", [])
 
         if not quiz:
-            st.info("Quiz is being generated...")
+            st.info("⏳ Quiz is being generated...")
         else:
             st.subheader("🧠 Test Your Knowledge")
 

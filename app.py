@@ -520,46 +520,46 @@ if "transcript" in st.session_state:
 
         st.subheader("🧠 Test Your Knowledge")
 
-    st.caption(
-        "Answer the questions generated from your lecture."
-    )
-
-    quiz = study_material["quiz"]
-
-    # Initialize quiz state
-    if "quiz_submitted" not in st.session_state:
-        st.session_state["quiz_submitted"] = False
-
-    if "quiz_score" not in st.session_state:
-        st.session_state["quiz_score"] = 0
-
-    # ----------------------------------------------
-    # Display questions
-    # ----------------------------------------------
-
-    for index, question_data in enumerate(
-        quiz,
-        start=1
-    ):
-
-        st.markdown(
-            f"### {index}. {question_data['question']}"
+        st.caption(
+            "Answer the questions generated from your lecture."
         )
 
-        # Radio button for each question
-        selected_answer = st.radio(
-            "Choose an answer:",
-            question_data["options"],
-            key=f"quiz_question_{index}",
-            index=None
-        )
+        quiz = study_material["quiz"]
 
-        # Store selected answer
-        st.session_state[
-            f"selected_answer_{index}"
-        ] = selected_answer
+        # Initialize quiz state
+        if "quiz_submitted" not in st.session_state:
+            st.session_state["quiz_submitted"] = False
 
-        st.divider()
+        if "quiz_score" not in st.session_state:
+            st.session_state["quiz_score"] = 0
+
+        # ----------------------------------------------
+        # Display questions
+        # ----------------------------------------------
+
+        for index, question_data in enumerate(
+            quiz,
+            start=1
+        ):
+
+            st.markdown(
+                f"### {index}. {question_data['question']}"
+            )
+
+            # Radio button for each question
+            selected_answer = st.radio(
+                "Choose an answer:",
+                question_data["options"],
+                key=f"quiz_question_{index}",
+                index=None
+            )
+
+            # Store selected answer
+            st.session_state[
+                f"selected_answer_{index}"
+            ] = selected_answer
+
+            st.divider()
 
 
         # ----------------------------------------------
@@ -569,7 +569,8 @@ if "transcript" in st.session_state:
         if st.button(
             "📊 Submit Quiz",
             type="primary",
-            use_container_width=True
+            use_container_width=True,
+            key="submit_quiz_button"
         ):
 
             score = 0
@@ -740,7 +741,8 @@ if "transcript" in st.session_state:
             # ------------------------------------------
 
             if st.button(
-                "🔄 Try Quiz Again"
+                "🔄 Try Quiz Again",
+                key="try_quiz_again_button"
             ):
 
                 st.session_state["quiz_submitted"] = False

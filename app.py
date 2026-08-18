@@ -96,10 +96,11 @@ with st.sidebar:
         Pretrained speech recognition model used to
         convert lecture audio into text.
         
-        **Hugging Face Transformers**
+        **Google Gemini**
         
-        Pretrained NLP models used to generate summaries,
-        key concepts, quiz questions, and lecture Q&A.
+        Google's generative AI model used to generate
+        summaries, key concepts, quiz questions, and
+        lecture Q&A.
         """
     )
 
@@ -322,8 +323,6 @@ if uploaded_file is not None:
                 text="✅ Transcription complete. Generating study material..."
             )
 
-            st.caption("🔄 Stage 2/3: Gemini is generating the summary and concepts.")
-
             if not transcript:
 
                 st.error(
@@ -334,8 +333,10 @@ if uploaded_file is not None:
 
 
             # ======================================
-            # HUGGING FACE NLP PIPELINE
+            # GEMINI AI GENERATION
             # ======================================
+
+            st.caption("🔄 Stage 2/3: Gemini is generating the summary and concepts.")
 
             with st.spinner(
                 "✨ Gemini is generating the summary, concepts, and quiz..."
@@ -442,7 +443,7 @@ if "transcript" in st.session_state:
         )
 
         st.caption(
-            "Generated using Whisper Speech Recognition AI"
+            "Generated using Whisper Speech Recognition"
         )
 
         st.text_area(
@@ -782,7 +783,7 @@ if "transcript" in st.session_state:
 
         st.write(
             "Ask questions about the uploaded lecture. "
-            "The AI uses the lecture transcript as its "
+            "Gemini uses the lecture transcript as its "
             "primary source."
         )
 
@@ -878,7 +879,7 @@ with step2:
         ### 2️⃣ AI Processing
 
         Whisper converts speech to text,
-        then Gemini analyzes the transcript.
+        then Google Gemini analyzes the transcript.
         """
     )
 

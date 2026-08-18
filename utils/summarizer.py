@@ -111,7 +111,7 @@ def _summarize_chunk(summarizer, chunk: str) -> str:
 
 
 def generate_summary(transcript: str) -> str:
-    """Generate a reliable lecture summary using a pretrained Hugging Face model.
+    """Generate a reliable lecture summary using Google Gemini.
 
     If the model cannot be loaded or inference fails in this environment, we fall back
     to a compressed version of the transcript instead of crashing the app.

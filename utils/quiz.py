@@ -203,7 +203,7 @@ def _parse_generated_quiz(text: str):
 
 
 def generate_quiz(summary: str, transcript: str = "", key_concepts=None):
-    """Generate multiple-choice questions using a lightweight pretrained Hugging Face generation model."""
+    """Generate multiple-choice questions using Google Gemini."""
     if not summary:
         summary = transcript[:800] if transcript else "This lecture discusses the key concepts and important learning objectives."
 

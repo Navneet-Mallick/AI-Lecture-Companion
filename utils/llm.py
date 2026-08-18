@@ -1,4 +1,4 @@
-from utils.gemini import answer_question, extract_key_concepts, generate_quiz, generate_summary
+from utils.gemini import answer_question, generate_all_study_material
 
 
 # Whisper handles speech recognition.
@@ -6,19 +6,10 @@ from utils.gemini import answer_question, extract_key_concepts, generate_quiz, g
 
 
 def generate_study_material(transcript: str) -> dict:
-    """Generate study material in the exact structure expected by the Streamlit app using Gemini."""
-    summary = generate_summary(transcript)
-    key_concepts = extract_key_concepts(transcript, summary)
-    quiz = generate_quiz(summary, transcript, key_concepts)
-
-    return {
-        "summary": summary,
-        "key_concepts": key_concepts,
-        "quiz": quiz,
-    }
+    """Generate study material using a single Gemini API call for speed."""
+    return generate_all_study_material(transcript)
 
 
 def ask_lecture(transcript: str, question: str) -> str:
     """Answer a lecture question using Gemini grounded in the transcript."""
     return answer_question(transcript, question)
-

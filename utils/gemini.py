@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from functools import lru_cache
 
 from dotenv import load_dotenv
 
@@ -15,7 +16,9 @@ def _get_api_key() -> str:
     return (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
 
 
+@lru_cache(maxsize=1)
 def _get_model():
+    """Load and cache the Gemini model instance."""
     if genai is None:
         raise RuntimeError("google-generativeai is not installed. Please install it with pip install google-generativeai")
 
@@ -36,7 +39,7 @@ def _get_model():
     for model_name in model_names:
         try:
             return genai.GenerativeModel(model_name)
-        except Exception as exc:  # pragma: no cover - tried multiple names for compatibility
+        except Exception as exc:
             last_error = exc
 
     raise RuntimeError(
@@ -65,42 +68,153 @@ def _extract_text(response) -> str:
     return str(response).strip()
 
 
-def _extract_json_array(raw_text: str):
+def _extract_json(raw_text: str):
+    """Extract a JSON object or array from model output."""
     text = (raw_text or "").strip()
     if not text:
-        return []
+        return None
 
+    # Strip markdown code fences
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
 
-    start = text.find("[")
-    end = text.rfind("]")
-    if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
-
+    # Try parsing as-is first
     try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            return parsed
+        return json.loads(text)
     except Exception:
         pass
 
-    return []
+    # Try to find a JSON object
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except Exception:
+            pass
+
+    # Try to find a JSON array
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except Exception:
+            pass
+
+    return None
+
+
+def generate_all_study_material(transcript: str) -> dict:
+    """Generate summary, key concepts, and quiz in a SINGLE Gemini API call for speed."""
+    transcript = (transcript or "").strip()
+    if not transcript:
+        return {
+            "summary": "No transcript content was provided.",
+            "key_concepts": [{"concept": "No content", "explanation": "No lecture content was provided."}],
+            "quiz": [],
+        }
+
+    model = _get_model()
+
+    # Limit transcript size to keep the request fast
+    trimmed_transcript = transcript[:8000]
+
+    prompt = (
+        "You are an AI study assistant. Based on the lecture transcript below, generate ALL of the following in a single JSON response:\n\n"
+        "1. **summary**: A concise but complete summary of the lecture (2-4 paragraphs).\n"
+        "2. **key_concepts**: An array of up to 5 objects, each with \"concept\" (short title) and \"explanation\" (brief description).\n"
+        "3. **quiz**: An array of exactly 5 multiple-choice questions. Each object must have:\n"
+        "   - \"question\": the question text\n"
+        "   - \"options\": array of exactly 4 answer choices\n"
+        "   - \"correct_answer\": must exactly match one of the options\n"
+        "   - \"explanation\": why the answer is correct\n\n"
+        "Return ONLY valid JSON with keys: summary, key_concepts, quiz. No extra text.\n\n"
+        f"Transcript:\n{trimmed_transcript}"
+    )
+
+    response = model.generate_content(prompt)
+    raw_text = _extract_text(response)
+    parsed = _extract_json(raw_text)
+
+    result = {
+        "summary": "",
+        "key_concepts": [],
+        "quiz": [],
+    }
+
+    if isinstance(parsed, dict):
+        # Extract summary
+        result["summary"] = str(parsed.get("summary") or "").strip()
+
+        # Extract key concepts
+        concepts_raw = parsed.get("key_concepts") or []
+        if isinstance(concepts_raw, list):
+            for item in concepts_raw[:5]:
+                if isinstance(item, dict):
+                    concept = str(item.get("concept") or "Key Idea").strip()
+                    explanation = str(item.get("explanation") or item.get("description") or "").strip()
+                    if concept:
+                        result["key_concepts"].append({"concept": concept, "explanation": explanation})
+
+        # Extract quiz
+        quiz_raw = parsed.get("quiz") or []
+        if isinstance(quiz_raw, list):
+            for item in quiz_raw[:5]:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question") or "").strip()
+                options = item.get("options") or []
+                if not question or not isinstance(options, list) or len(options) != 4:
+                    continue
+                options = [str(opt).strip() for opt in options[:4]]
+                correct_answer = str(item.get("correct_answer") or item.get("answer") or "").strip()
+                if correct_answer not in options:
+                    correct_answer = options[0]
+                explanation = str(item.get("explanation") or "This answer is supported by the lecture content.").strip()
+                result["quiz"].append({
+                    "question": question,
+                    "options": options,
+                    "correct_answer": correct_answer,
+                    "explanation": explanation,
+                })
+
+    # Fallbacks if parsing failed
+    if not result["summary"]:
+        result["summary"] = transcript[:800]
+    if not result["key_concepts"]:
+        result["key_concepts"] = [
+            {"concept": "Primary topic", "explanation": result["summary"][:250]},
+            {"concept": "Core idea", "explanation": "The lecture explains the main concept with supporting examples."},
+        ]
+    if not result["quiz"]:
+        result["quiz"] = [{
+            "question": "Which statement best matches the lecture?",
+            "options": [
+                result["summary"][:180],
+                "A topic unrelated to the lecture.",
+                "A false claim not supported by the lecture.",
+                "A random statement with no instructional value."
+            ],
+            "correct_answer": result["summary"][:180],
+            "explanation": "This is the closest lecture-grounded statement from the provided material."
+        }]
+
+    return result
 
 
 def generate_summary(transcript: str) -> str:
+    """Generate a summary (standalone, used if needed individually)."""
     transcript = (transcript or "").strip()
     if not transcript:
         return "No transcript content was provided."
 
     model = _get_model()
     prompt = (
-        "You are generating study notes from a lecture transcript. "
-        "Write a concise but complete summary in clear English. "
-        "Keep it focused on the lecture's main ideas, examples, and key takeaways. "
-        "Do not invent facts.\n\nTranscript:\n"
-        f"{transcript}"
+        "Write a concise but complete summary of this lecture transcript. "
+        "Focus on main ideas, examples, and key takeaways. Do not invent facts.\n\n"
+        f"Transcript:\n{transcript[:8000]}"
     )
     response = model.generate_content(prompt)
     summary = _extract_text(response)
@@ -108,7 +222,7 @@ def generate_summary(transcript: str) -> str:
 
 
 def extract_key_concepts(transcript: str, summary: str = "", max_concepts: int = 5):
-    transcript = (transcript or "").strip()
+    """Extract key concepts (standalone, used if needed individually)."""
     summary = (summary or transcript or "").strip()
     if not summary:
         return [{"concept": "No content", "explanation": "No lecture content was provided."}]
@@ -116,15 +230,14 @@ def extract_key_concepts(transcript: str, summary: str = "", max_concepts: int =
     model = _get_model()
     prompt = (
         "Extract up to 5 key concepts from this lecture summary. "
-        "Return valid JSON as an array of objects with keys: concept and explanation. "
-        "Each concept should be a short title and each explanation should be a brief, accurate statement.\n\n"
+        "Return valid JSON as an array of objects with keys: concept and explanation.\n\n"
         f"Summary:\n{summary}"
     )
     response = model.generate_content(prompt)
     raw_text = _extract_text(response)
-    parsed = _extract_json_array(raw_text)
+    parsed = _extract_json(raw_text)
 
-    if parsed and isinstance(parsed, list):
+    if isinstance(parsed, list):
         cleaned = []
         for item in parsed[:max_concepts]:
             if not isinstance(item, dict):
@@ -136,41 +249,30 @@ def extract_key_concepts(transcript: str, summary: str = "", max_concepts: int =
         if cleaned:
             return cleaned
 
-    fallback = [
+    return [
         {"concept": "Primary topic", "explanation": summary[:250]},
-        {"concept": "Core idea", "explanation": "The lecture explains the main concept with supporting examples and definitions."},
+        {"concept": "Core idea", "explanation": "The lecture explains the main concept with supporting examples."},
     ]
-    return fallback[:max_concepts]
 
 
 def generate_quiz(summary: str, transcript: str = "", key_concepts=None):
+    """Generate quiz (standalone, used if needed individually)."""
     source = summary or transcript or ""
     if not source:
-        return [{
-            "question": "No lecture content was provided.",
-            "options": ["No content available", "No content available", "No content available", "No content available"],
-            "correct_answer": "No content available",
-            "explanation": "No lecture transcript was available to generate quiz questions."
-        }]
+        return []
 
     model = _get_model()
-    key_context = ""
-    if key_concepts:
-        key_context = "Key concepts:\n" + "\n".join(f"- {item.get('concept', 'Key idea')}: {item.get('explanation', '')}" for item in key_concepts[:5]) + "\n\n"
-
     prompt = (
-        "Generate exactly 5 multiple-choice questions based only on the lecture content. "
-        "Return valid JSON only, as an array of objects with keys: question, options, correct_answer, explanation. "
-        "Each question must have exactly 4 options. The correct_answer must match one option exactly. "
-        "Do not include any extra text outside the JSON.\n\n"
-        f"{key_context}"
-        f"Lecture summary:\n{summary}\n\nLecture transcript:\n{transcript[:4000]}"
+        "Generate exactly 5 multiple-choice questions based on this lecture. "
+        "Return valid JSON only as an array of objects with keys: question, options, correct_answer, explanation. "
+        "Each question must have exactly 4 options. correct_answer must match one option exactly.\n\n"
+        f"Lecture summary:\n{summary}\n\nTranscript:\n{(transcript or '')[:4000]}"
     )
     response = model.generate_content(prompt)
     raw_text = _extract_text(response)
-    parsed = _extract_json_array(raw_text)
+    parsed = _extract_json(raw_text)
 
-    if parsed and isinstance(parsed, list):
+    if isinstance(parsed, list):
         cleaned = []
         for item in parsed[:5]:
             if not isinstance(item, dict):
@@ -180,7 +282,7 @@ def generate_quiz(summary: str, transcript: str = "", key_concepts=None):
             if not question or not isinstance(options, list) or len(options) != 4:
                 continue
             options = [str(opt).strip() for opt in options[:4]]
-            correct_answer = str(item.get("correct_answer") or item.get("answer") or "").strip()
+            correct_answer = str(item.get("correct_answer") or "").strip()
             if correct_answer not in options:
                 correct_answer = options[0]
             explanation = str(item.get("explanation") or "This answer is supported by the lecture content.").strip()
@@ -196,17 +298,18 @@ def generate_quiz(summary: str, transcript: str = "", key_concepts=None):
     return [{
         "question": "Which statement best matches the lecture?",
         "options": [
-            summary[:180] if summary else "The lecture explains the main concepts.",
+            source[:180],
             "A topic unrelated to the lecture.",
             "A false claim not supported by the lecture.",
             "A random statement with no instructional value."
         ],
-        "correct_answer": summary[:180] if summary else "The lecture explains the main concepts.",
-        "explanation": "This is the closest lecture-grounded statement derived from the provided material."
+        "correct_answer": source[:180],
+        "explanation": "This is the closest lecture-grounded statement from the provided material."
     }]
 
 
 def answer_question(transcript: str, question: str) -> str:
+    """Answer a question using the lecture transcript."""
     transcript = (transcript or "").strip()
     question = (question or "").strip()
 
@@ -220,7 +323,7 @@ def answer_question(transcript: str, question: str) -> str:
         "Answer the user's question using only the lecture transcript as the source. "
         "If the transcript does not contain enough information, say that the information is not covered. "
         "Keep the response concise and grounded in the lecture.\n\n"
-        f"Question: {question}\n\nTranscript:\n{transcript[:12000]}"
+        f"Question: {question}\n\nTranscript:\n{transcript[:8000]}"
     )
     response = model.generate_content(prompt)
     answer = _extract_text(response)

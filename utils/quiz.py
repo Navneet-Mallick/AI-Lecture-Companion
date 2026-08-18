@@ -32,120 +32,154 @@ def load_quiz_generator():
 
 
 def _generate_fallback_quiz(summary: str, key_concepts):
-    if not summary:
-        summary = "This lecture introduces the main ideas and important learning objectives."
+    summary = (summary or "").strip() or "This lecture introduces the main ideas and learning objectives."
 
-    concept_items = key_concepts or [{"concept": "Main Topic", "explanation": summary}]
-    concept_titles = [item["concept"] for item in concept_items]
-    concept_explanations = [item["explanation"] for item in concept_items]
+    concept_items = key_concepts or []
+    if not concept_items:
+        concept_items = [{"concept": "Main Topic", "explanation": summary}]
+
+    concept_titles = [str(item.get("concept", "")).strip() for item in concept_items if str(item.get("concept", "")).strip()]
+    concept_explanations = [str(item.get("explanation", summary)).strip() for item in concept_items if str(item.get("explanation", "")).strip()]
+
+    if not concept_titles:
+        concept_titles = ["Main Topic"]
+    if not concept_explanations:
+        concept_explanations = [summary]
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", summary) if s.strip()]
+    main_claim = sentences[0] if sentences else summary
 
     questions = []
-    
-    # Q1: Multiple concept choices
-    if len(concept_titles) >= 2:
-        q1_options = [
-            concept_titles[0],
-            concept_titles[1],
-            "Random unrelated topic",
-            "Not mentioned in the lecture"
-        ]
-    else:
-        q1_options = [
-            concept_titles[0] if concept_titles else "Artificial Intelligence",
-            "Unrelated concept",
-            "Not covered",
-            "A different field"
-        ]
+
+    # Question 1: anchored to a real concept from the lecture
+    first_concept = concept_titles[0]
+    first_explanation = concept_explanations[0]
+    distractors = []
+    for other in concept_titles[1:]:
+        distractors.append(other)
+    if len(distractors) < 3:
+        distractors.extend([
+            "A future prediction unrelated to the lecture",
+            "An idea not mentioned in the lecture",
+            "A completely different field"
+        ])
+
+    question_1_options = [first_explanation, distractors[0], distractors[1], distractors[2]]
     questions.append({
-        "question": f"What is one of the main topics covered in this lecture?",
-        "options": q1_options,
-        "correct_answer": q1_options[0],
-        "explanation": "This concept was discussed in the lecture."
+        "question": f"Which statement best describes {first_concept}?",
+        "options": question_1_options,
+        "correct_answer": first_explanation,
+        "explanation": f"{first_concept} is discussed in the lecture as follows: {first_explanation}"
     })
-    
-    # Q2: Summary match (using full summary, not truncated)
-    # Split at sentence boundary to avoid cutting mid-word
-    summary_for_q2 = summary
-    if len(summary) > 200:
-        # Find last period before 200 chars
-        truncated = summary[:200]
-        last_period = truncated.rfind('.')
-        if last_period > 100:  # Only truncate if there's a decent chunk
-            summary_for_q2 = truncated[:last_period+1]
-        else:
-            summary_for_q2 = truncated
-    
-    q2_options = [
-        summary_for_q2,
+
+    # Question 2: grounded in the actual summary claim
+    support_options = [
+        main_claim,
+        "A topic that was not covered in the lecture",
         "A completely unrelated field",
-        "The opposite of what was taught",
-        "A future prediction, not current content"
+        "A misleading statement contradicted by the lecture"
     ]
     questions.append({
-        "question": "Which best describes the lecture content?",
-        "options": q2_options,
-        "correct_answer": q2_options[0],
-        "explanation": "This summary matches the lecture material."
+        "question": "Which statement is supported by the lecture?",
+        "options": support_options,
+        "correct_answer": main_claim,
+        "explanation": "This statement matches the lecture's actual content and main takeaway."
     })
-    
-    # Q3: Purpose
-    questions.append({
-        "question": "What is the main purpose of this lecture?",
-        "options": [
-            "To explain key concepts and their definitions",
-            "To avoid covering important topics",
-            "To confuse students",
-            "To discuss unrelated subjects"
-        ],
-        "correct_answer": "To explain key concepts and their definitions",
-        "explanation": "The lecture aims to teach and explain important concepts."
-    })
-    
-    # Q4: Specific concept (if available)
-    if len(concept_explanations) > 0:
-        q4_options = [
-            concept_explanations[0],
-            "Something completely different",
-            "An outdated definition",
-            "Not relevant to this lecture"
+
+    # Question 3: use a concrete second concept when available
+    if len(concept_titles) >= 2:
+        second_concept = concept_titles[1]
+        second_explanation = concept_explanations[1] if len(concept_explanations) > 1 else concept_explanations[0]
+        q3_options = [
+            second_explanation,
+            f"{second_concept} is completely unrelated to the lecture",
+            "The lecture never discusses the topic",
+            "This concept is the opposite of the lecture"
         ]
+        questions.append({
+            "question": f"Which option best matches the lecture's discussion of {second_concept}?",
+            "options": q3_options,
+            "correct_answer": second_explanation,
+            "explanation": f"The lecture discusses {second_concept} in this way: {second_explanation}"
+        })
     else:
-        q4_options = [
-            "The lecture explains foundational concepts",
-            "Random unrelated fact",
-            "False information",
-            "Opposite of the lecture"
-        ]
+        questions.append({
+            "question": "What is the main purpose of this lecture?",
+            "options": [
+                "To explain the key concepts and ideas discussed",
+                "To avoid discussing important ideas",
+                "To make the topic confusing",
+                "To cover unrelated subjects"
+            ],
+            "correct_answer": "To explain the key concepts and ideas discussed",
+            "explanation": "The lecture is designed to teach the central concepts from the material."
+        })
+
+    # Question 4: directly references key concepts
+    q4_options = [
+        first_concept,
+        "A random topic that was never introduced",
+        "A future event not covered in the lecture",
+        "A concept that contradicts the lecture"
+    ]
     questions.append({
-        "question": "What key idea was emphasized in the lecture?",
+        "question": "Which option is a concept explicitly covered in the lecture?",
         "options": q4_options,
-        "correct_answer": q4_options[0],
-        "explanation": "This reflects the core content of the lecture."
+        "correct_answer": first_concept,
+        "explanation": f"{first_concept} is one of the concepts directly discussed in the lecture material."
     })
-    
-    # Q5: Application/Understanding
+
+    # Question 5: lecture understanding
+    q5_options = [
+        "The lecture explains important ideas using a concrete summary of the topic",
+        "The lecture is entirely unrelated to the summary",
+        "The lecture avoids discussing the main subject",
+        "The lecture only contains random details"
+    ]
     questions.append({
-        "question": "Based on the lecture, which statement is TRUE?",
-        "options": [
-            concept_titles[0] if concept_titles else "The lecture covers important topics",
-            "The lecture was not about what was described",
-            "Nothing important was discussed",
-            "All concepts were unrelated"
-        ],
-        "correct_answer": concept_titles[0] if concept_titles else "The lecture covers important topics",
-        "explanation": "This statement is supported by the lecture content."
+        "question": "Which statement is true about this lecture?",
+        "options": q5_options,
+        "correct_answer": "The lecture explains important ideas using a concrete summary of the topic",
+        "explanation": "The lecture content is organized around a clear set of concepts and a coherent summary."
     })
 
     return questions[:5]
 
 
 def _parse_generated_quiz(text: str):
-    """Try to parse a question list from model output; otherwise fall back safely."""
+    """Parse a model response if it contains a recognizable question list or a JSON object."""
     cleaned = (text or "").strip()
     if not cleaned:
         return []
 
-    pattern = re.compile(r"(?:Q(?:uestion)?\s*[:\-]?\s*)(.+?)(?:\n|$)\s*(?:A\)|A\.|A\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:B\)|B\.|B\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:C\)|C\.|C\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:D\)|D\.|D\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:Correct|Answer)\s*[:\-]?\s*(.+?)(?:\n|$)", re.IGNORECASE | re.DOTALL)
+    # JSON-first parsing is more reliable for modern generation models.
+    try:
+        if cleaned.startswith("[") or cleaned.startswith("{"):
+            parsed = __import__("json").loads(cleaned)
+            if isinstance(parsed, list):
+                questions = []
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    if "question" in item and "options" in item and len(item["options"]) >= 4:
+                        options = [str(opt).strip() for opt in item["options"][:4]]
+                        correct_answer = str(item.get("correct_answer") or item.get("answer") or "").strip()
+                        if correct_answer and correct_answer in options:
+                            questions.append({
+                                "question": str(item["question"]).strip(),
+                                "options": options,
+                                "correct_answer": correct_answer,
+                                "explanation": item.get("explanation") or "This answer is supported by the lecture content.",
+                            })
+                if questions:
+                    return questions[:5]
+    except Exception:
+        pass
+
+    pattern = re.compile(
+        r"(?:Q(?:uestion)?\s*[:\-]?\s*)(.+?)(?:\n|$)\s*(?:A\)|A\.|A\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:B\)|B\.|B\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:C\)|C\.|C\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:D\)|D\.|D\s*[:\-])\s*(.+?)(?:\n|$)\s*(?:Correct|Answer)\s*[:\-]?\s*(.+?)(?:\n|$)",
+        re.IGNORECASE | re.DOTALL,
+    )
 
     match = pattern.search(cleaned)
     if match:

@@ -72,7 +72,7 @@ def answer_question(transcript: str, question: str) -> str:
         qa_model = load_qa_model()
         if not qa_model:
             raise Exception("QA model failed to load")
-        
+
         best_answer = None
         best_score = 0.0
 
@@ -81,11 +81,9 @@ def answer_question(transcript: str, question: str) -> str:
             answer = (result or {}).get("answer", "").strip()
             score = float((result or {}).get("score", 0.0) or 0.0)
 
-            # Lowered threshold to 0.01 to accept weak matches
             if answer and score > 0.01:
                 best_answer = answer
                 best_score = score
-                # Accept first decent match to avoid waiting for perfect score
                 if score > 0.3:
                     break
 
@@ -95,24 +93,32 @@ def answer_question(transcript: str, question: str) -> str:
     except Exception:
         pass
 
-    # Fallback: keyword extraction from transcript
+    # Strong transcript-grounded fallback: score sentences based on overlap with the question.
     question_lower = question_text.lower()
-    keywords = [w for w in question_lower.split() if len(w) > 3 and w not in ['what', 'when', 'where', 'which', 'does', 'have', 'from', 'with', 'your', 'this', 'that', 'about']]
-    
-    transcript_lower = transcript_text.lower()
-    sentences = [s.strip() for s in transcript_text.split('.') if s.strip()]
-    
-    # Find sentences with matching keywords
+    question_tokens = [
+        t for t in __import__("re").findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", question_lower)
+        if t not in {
+            "what", "when", "where", "which", "who", "why", "how", "does",
+            "have", "from", "with", "your", "this", "that", "about", "used",
+            "into", "over", "under", "after", "before", "through"
+        }
+    ]
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", transcript_text) if s.strip()]
     scored_sentences = []
     for sent in sentences:
         sent_lower = sent.lower()
-        matches = sum(1 for kw in keywords if kw in sent_lower)
-        if matches > 0:
-            scored_sentences.append((sent, matches))
-    
+        score = sum(1 for token in question_tokens if token in sent_lower)
+        if score > 0:
+            scored_sentences.append((score, sent.strip()))
+
     if scored_sentences:
-        # Return sentence with most keyword matches
-        best_sent = max(scored_sentences, key=lambda x: x[1])[0]
-        return best_sent.strip()
-    
-    return "This information is not covered in the lecture. Try asking about: " + ", ".join([s[:30] + "..." for s in sentences[:3]]) + "."
+        best_score_sentence = max(scored_sentences, key=lambda x: x[0])[1]
+        return best_score_sentence
+
+    # Final fallback: return a short, lecture-grounded response using the first meaningful sentences.
+    stripped = [s.strip() for s in sentences[:3] if s.strip()]
+    if stripped:
+        return stripped[0]
+
+    return "This information is not covered in the lecture. Try asking about the lecture's main concepts and examples."

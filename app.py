@@ -144,6 +144,7 @@ st.markdown(
     '<div class="subtitle">'
     'Transform recorded lectures into intelligent study material '
     'using Artificial Intelligence.'
+    'By Navneet Mallick'
     '</div>',
     unsafe_allow_html=True
 )
@@ -321,7 +322,7 @@ if uploaded_file is not None:
                 text="✅ Transcription complete. Generating study material..."
             )
 
-            st.caption("🔄 Stage 2/3: Hugging Face is generating the summary and concepts.")
+            st.caption("🔄 Stage 2/3: Gemini is generating the summary and concepts.")
 
             if not transcript:
 
@@ -337,20 +338,19 @@ if uploaded_file is not None:
             # ======================================
 
             with st.spinner(
-                "🤗 Hugging Face is generating the summary, concepts, and quiz..."
+                "✨ Gemini is generating the summary, concepts, and quiz..."
             ):
 
                 study_material = generate_study_material(
                     transcript
                 )
 
-            if "Fallback summary:" in study_material.get("summary", ""):
+            if "No transcript content was provided." in study_material.get("summary", ""):
                 st.warning(
-                    "⚠️ The local Hugging Face summary model is unavailable or too slow in this environment. "
-                    "A transcript-based fallback summary is being shown instead."
+                    "⚠️ Gemini could not generate a summary from the transcript. Please check the uploaded lecture or API key."
                 )
             else:
-                st.caption("✅ Hugging Face summary and concept extraction completed successfully.")
+                st.caption("✅ Gemini summary and concept extraction completed successfully.")
 
             st.caption("🔄 Stage 3/3: Finalizing quiz and lecture Q&A output.")
 

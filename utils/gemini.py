@@ -24,7 +24,25 @@ def _get_model():
         raise RuntimeError("Missing GEMINI_API_KEY or GOOGLE_API_KEY environment variable.")
 
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+
+    model_names = [
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]
+
+    last_error = None
+    for model_name in model_names:
+        try:
+            return genai.GenerativeModel(model_name)
+        except Exception as exc:  # pragma: no cover - tried multiple names for compatibility
+            last_error = exc
+
+    raise RuntimeError(
+        "No supported Gemini model was available for this account. Tried: "
+        + ", ".join(model_names)
+    ) from last_error
 
 
 def _extract_text(response) -> str:

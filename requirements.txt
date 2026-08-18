@@ -1,5 +1,4 @@
 openai-whisper>=20240314
-python-dotenv>=1.0.0
 streamlit>=1.28.0
 google-generativeai>=0.8.0
-sentencepiece>=0.1.99
+python-dotenv>=1.0.0

@@ -129,294 +129,221 @@ if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
     st.error(f"❌ File too large. Max size: {MAX_FILE_SIZE_MB} MB.")
     st.stop()
 
-
-# Process Lecture
 st.success(f"📄 Selected: **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.2f} MB)")
 
-# Save file bytes + name to session so they survive reruns
 if st.button("🚀 Process Lecture", type="primary", use_container_width=True):
-    st.session_state["file_bytes"] = uploaded_file.getbuffer().tobytes()
-    st.session_state["file_name"] = uploaded_file.name
-    # Clear old results
-    for key in ["transcript", "summary", "key_concepts", "quiz", "answer",
-                "quiz_submitted", "quiz_score", "quiz_unanswered"]:
-        st.session_state.pop(key, None)
-    st.session_state["stage"] = "transcribe"
-    st.rerun()
 
-
-# Stage-based processing
-stage = st.session_state.get("stage")
-
-if stage == "transcribe":
-    file_bytes = st.session_state.get("file_bytes")
-    file_name = st.session_state.get("file_name", "audio.mp4")
-
-    if not file_bytes:
-        st.error("❌ File data lost. Please re-upload.")
-        st.session_state["stage"] = None
-        st.stop()
-
-    file_extension = os.path.splitext(file_name)[1]
+    file_extension = os.path.splitext(uploaded_file.name)[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
-        tmp.write(file_bytes)
+        tmp.write(uploaded_file.getbuffer())
         temp_path = tmp.name
 
     try:
-        with st.spinner("🎤 Transcribing lecture with Whisper..."):
-            model = get_whisper_model()
-            transcript = transcribe_audio(model, temp_path)
+        # Stage 1: Transcription
+        status = st.status("Processing lecture...", expanded=True)
+        status.write("🎤 **Stage 1/4:** Transcribing with Whisper...")
+
+        model = get_whisper_model()
+        transcript = transcribe_audio(model, temp_path)
 
         if not transcript:
             st.error("❌ No speech detected in this file.")
-            st.session_state["stage"] = None
             st.stop()
 
+        status.write("✅ Transcription complete!")
         st.session_state["transcript"] = transcript
-        st.session_state["stage"] = "summary"
-        st.rerun()
+
+        # Show transcript immediately
+        with st.expander("📝 Transcript", expanded=True):
+            st.text_area("transcript_preview", transcript, height=300, label_visibility="collapsed")
+
+        # Stage 2: Summary
+        status.write("📖 **Stage 2/4:** Generating summary with Gemini...")
+        summary = generate_summary_only(transcript)
+        status.write("✅ Summary generated!")
+        st.session_state["summary"] = summary
+
+        # Show summary immediately
+        with st.expander("📖 Summary", expanded=True):
+            st.write(summary)
+
+        # Stage 3: Key Concepts
+        status.write("🔑 **Stage 3/4:** Extracting key concepts...")
+        key_concepts = generate_concepts_only(transcript, summary)
+        status.write("✅ Key concepts extracted!")
+        st.session_state["key_concepts"] = key_concepts
+
+        # Show concepts immediately
+        with st.expander("🔑 Key Concepts", expanded=True):
+            for i, concept in enumerate(key_concepts, 1):
+                st.markdown(f"**{i}. {concept['concept']}**")
+                st.write(concept["explanation"])
+                st.write("")
+
+        # Stage 4: Quiz
+        status.write("❓ **Stage 4/4:** Generating quiz questions...")
+        quiz = generate_quiz_only(summary, transcript, key_concepts)
+        status.write("✅ Quiz generated!")
+        st.session_state["quiz"] = quiz
+        st.session_state["answer"] = ""
+
+        status.update(label="🎉 Processing complete!", state="complete", expanded=False)
 
     except Exception as e:
-        st.error("❌ Transcription failed.")
+        st.error("❌ Something went wrong while processing the lecture.")
         st.exception(e)
-        st.session_state["stage"] = None
 
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-elif stage == "summary":
-    with st.spinner("📖 Generating summary with Gemini..."):
-        try:
-            summary = generate_summary_only(st.session_state["transcript"])
-            st.session_state["summary"] = summary
-            st.session_state["stage"] = "concepts"
-            st.rerun()
-        except Exception as e:
-            st.error("❌ Summary generation failed.")
-            st.exception(e)
-            st.session_state["stage"] = "done"
 
-elif stage == "concepts":
-    with st.spinner("🔑 Extracting key concepts..."):
-        try:
-            key_concepts = generate_concepts_only(
-                st.session_state["transcript"],
-                st.session_state["summary"]
-            )
-            st.session_state["key_concepts"] = key_concepts
-            st.session_state["stage"] = "quiz"
-            st.rerun()
-        except Exception as e:
-            st.error("❌ Concept extraction failed.")
-            st.exception(e)
-            st.session_state["stage"] = "done"
-
-elif stage == "quiz":
-    with st.spinner("❓ Generating quiz questions..."):
-        try:
-            quiz = generate_quiz_only(
-                st.session_state["summary"],
-                st.session_state["transcript"],
-                st.session_state.get("key_concepts")
-            )
-            st.session_state["quiz"] = quiz
-            st.session_state["answer"] = ""
-            st.session_state["stage"] = "done"
-            st.rerun()
-        except Exception as e:
-            st.error("❌ Quiz generation failed.")
-            st.exception(e)
-            st.session_state["stage"] = "done"
-
-
-# Display Results
+# Display full results (after processing or on page reload)
 if "transcript" in st.session_state:
     transcript = st.session_state["transcript"]
-
-    # Show progress indicator if still processing
-    current_stage = st.session_state.get("stage")
-    if current_stage and current_stage != "done":
-        st.info(f"⏳ Processing in progress... (current: {current_stage})")
+    summary = st.session_state.get("summary", "")
+    key_concepts = st.session_state.get("key_concepts", [])
+    quiz = st.session_state.get("quiz", [])
 
     st.divider()
     st.markdown('<div class="section-title">📚 Study Material</div>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📝 Transcript", "📚 Summary & Concepts", "❓ Quiz", "💬 Ask Lecture"
-    ])
+    # Transcript
+    st.subheader("📝 Transcript")
+    st.text_area("Full Transcript", transcript, height=300, label_visibility="collapsed")
+    st.download_button(
+        "⬇️ Download Transcript",
+        data=transcript,
+        file_name="lecture_transcript.txt",
+        mime="text/plain"
+    )
 
-    # Tab 1: Transcript
-    with tab1:
-        st.subheader("📝 Lecture Transcript")
-        st.text_area("Transcript", transcript, height=450, label_visibility="collapsed")
+    # Summary
+    if summary:
+        st.divider()
+        st.subheader("📖 Summary")
+        st.write(summary)
+
+    # Key Concepts
+    if key_concepts:
+        st.divider()
+        st.subheader("🔑 Key Concepts")
+        for i, concept in enumerate(key_concepts, 1):
+            with st.expander(f"{i}. {concept['concept']}", expanded=True):
+                st.write(concept["explanation"])
+
+        # Download study material
+        study_text = (
+            "AI LECTURE COMPANION\n====================\n\n"
+            f"SUMMARY\n-------\n\n{summary}\n\n"
+            "KEY CONCEPTS\n------------\n\n"
+        )
+        for concept in key_concepts:
+            study_text += f"• {concept['concept']}\n  {concept['explanation']}\n\n"
+
         st.download_button(
-            "⬇️ Download Transcript",
-            data=transcript,
-            file_name="lecture_transcript.txt",
+            "⬇️ Download Study Material",
+            data=study_text,
+            file_name="lecture_study_material.txt",
             mime="text/plain"
         )
 
-    # Tab 2: Summary & Key Concepts
-    with tab2:
-        summary = st.session_state.get("summary", "")
-        key_concepts = st.session_state.get("key_concepts", [])
+    # Quiz
+    if quiz:
+        st.divider()
+        st.subheader("❓ Quiz")
 
-        if summary:
-            st.subheader("📖 Summary")
-            st.write(summary)
-        else:
-            st.info("⏳ Summary is being generated...")
+        if "quiz_submitted" not in st.session_state:
+            st.session_state["quiz_submitted"] = False
 
-        if key_concepts:
-            st.divider()
-            st.subheader("🔑 Key Concepts")
-            for i, concept in enumerate(key_concepts, 1):
-                with st.expander(f"{i}. {concept['concept']}", expanded=True):
-                    st.write(concept["explanation"])
-
-            # Download
-            study_text = (
-                "AI LECTURE COMPANION\n"
-                "====================\n\n"
-                "SUMMARY\n-------\n\n"
-                f"{summary}\n\n"
-                "KEY CONCEPTS\n------------\n\n"
+        for i, q in enumerate(quiz, 1):
+            st.markdown(f"**{i}. {q['question']}**")
+            selected = st.radio(
+                "Choose:",
+                q["options"],
+                key=f"quiz_q_{i}",
+                index=None
             )
-            for concept in key_concepts:
-                study_text += f"• {concept['concept']}\n  {concept['explanation']}\n\n"
+            st.session_state[f"sel_{i}"] = selected
+            st.write("")
 
-            st.download_button(
-                "⬇️ Download Study Material",
-                data=study_text,
-                file_name="lecture_study_material.txt",
-                mime="text/plain"
-            )
-        elif summary:
-            st.info("⏳ Key concepts are being extracted...")
-
-    # Tab 3: Quiz
-    with tab3:
-        quiz = st.session_state.get("quiz", [])
-
-        if not quiz:
-            st.info("⏳ Quiz is being generated...")
-        else:
-            st.subheader("🧠 Test Your Knowledge")
-
-            if "quiz_submitted" not in st.session_state:
-                st.session_state["quiz_submitted"] = False
-            if "quiz_score" not in st.session_state:
-                st.session_state["quiz_score"] = 0
-
+        if st.button("📊 Submit Quiz", type="primary", use_container_width=True, key="submit_quiz"):
+            score = 0
+            unanswered = 0
             for i, q in enumerate(quiz, 1):
-                st.markdown(f"### {i}. {q['question']}")
-                selected = st.radio(
-                    "Choose an answer:",
-                    q["options"],
-                    key=f"quiz_question_{i}",
-                    index=None
-                )
-                st.session_state[f"selected_answer_{i}"] = selected
-                st.divider()
+                ans = st.session_state.get(f"sel_{i}")
+                if ans is None:
+                    unanswered += 1
+                elif ans == q["correct_answer"]:
+                    score += 1
+            st.session_state["quiz_score"] = score
+            st.session_state["quiz_unanswered"] = unanswered
+            st.session_state["quiz_submitted"] = True
 
-            if st.button("📊 Submit Quiz", type="primary", use_container_width=True, key="submit_quiz"):
-                score = 0
-                unanswered = 0
-                for i, q in enumerate(quiz, 1):
-                    ans = st.session_state.get(f"selected_answer_{i}")
-                    if ans is None:
-                        unanswered += 1
-                    elif ans == q["correct_answer"]:
-                        score += 1
+        if st.session_state.get("quiz_submitted"):
+            score = st.session_state["quiz_score"]
+            unanswered = st.session_state.get("quiz_unanswered", 0)
+            total = len(quiz)
+            percentage = (score / total) * 100
 
-                st.session_state["quiz_score"] = score
-                st.session_state["quiz_unanswered"] = unanswered
-                st.session_state["quiz_submitted"] = True
-
-            if st.session_state.get("quiz_submitted"):
-                score = st.session_state["quiz_score"]
-                unanswered = st.session_state.get("quiz_unanswered", 0)
-                total = len(quiz)
-                percentage = (score / total) * 100
-
-                st.divider()
-                st.subheader("📊 Result")
-
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Score", f"{score}/{total}")
-                c2.metric("Percentage", f"{percentage:.0f}%")
-                c3.metric("Unanswered", unanswered)
-
-                if percentage >= 80:
-                    st.success("🎉 Excellent! Strong understanding of the lecture.")
-                elif percentage >= 60:
-                    st.info("👍 Good job! Review concepts to strengthen understanding.")
-                else:
-                    st.warning("📚 Consider reviewing the summary and concepts.")
-
-                st.divider()
-                st.subheader("📋 Answer Review")
-
-                for i, q in enumerate(quiz, 1):
-                    ans = st.session_state.get(f"selected_answer_{i}")
-                    correct = q["correct_answer"]
-
-                    st.markdown(f"**{i}. {q['question']}**")
-                    if ans is None:
-                        st.warning("⚠️ Not answered")
-                    elif ans == correct:
-                        st.success("✅ Correct")
-                    else:
-                        st.error("❌ Incorrect")
-                        st.write(f"Your answer: {ans}")
-
-                    st.write(f"Correct answer: **{correct}**")
-                    st.write(f"Explanation: {q['explanation']}")
-                    st.divider()
-
-                if st.button("🔄 Try Again", key="retry_quiz"):
-                    st.session_state["quiz_submitted"] = False
-                    st.session_state["quiz_score"] = 0
-                    st.session_state["quiz_unanswered"] = 0
-                    for i in range(1, len(quiz) + 1):
-                        st.session_state.pop(f"selected_answer_{i}", None)
-                    st.rerun()
-
-    # Tab 4: Ask Lecture
-    with tab4:
-        st.subheader("💬 Ask the Lecture")
-        st.write("Ask any question — answered using the lecture transcript as context.")
-        st.info("💡 Example: What are the main topics covered?")
-
-        question = st.text_input(
-            "Your question",
-            placeholder="e.g. What is supervised learning?",
-            key="question_input"
-        )
-
-        if st.button("🔎 Ask", type="primary", key="ask_button"):
-            if not question.strip():
-                st.warning("⚠️ Please enter a question.")
-            else:
-                with st.spinner("Thinking..."):
-                    try:
-                        answer = ask_lecture(transcript, question)
-                        st.session_state["answer"] = answer
-                    except Exception as e:
-                        st.error("❌ Unable to answer the question.")
-                        st.exception(e)
-
-        if st.session_state.get("answer"):
             st.divider()
-            st.subheader("💡 Answer")
-            st.write(st.session_state["answer"])
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Score", f"{score}/{total}")
+            c2.metric("Percentage", f"{percentage:.0f}%")
+            c3.metric("Unanswered", unanswered)
+
+            if percentage >= 80:
+                st.success("🎉 Excellent!")
+            elif percentage >= 60:
+                st.info("👍 Good job!")
+            else:
+                st.warning("📚 Review the material and try again.")
+
+            st.divider()
+            for i, q in enumerate(quiz, 1):
+                ans = st.session_state.get(f"sel_{i}")
+                correct = q["correct_answer"]
+                st.markdown(f"**{i}. {q['question']}**")
+                if ans is None:
+                    st.warning("Not answered")
+                elif ans == correct:
+                    st.success(f"✅ {ans}")
+                else:
+                    st.error(f"❌ {ans}")
+                st.write(f"Correct: **{correct}** — {q['explanation']}")
+                st.write("")
+
+            if st.button("🔄 Try Again", key="retry"):
+                st.session_state["quiz_submitted"] = False
+                for i in range(1, len(quiz) + 1):
+                    st.session_state.pop(f"sel_{i}", None)
+                st.rerun()
+
+    # Ask Lecture
+    st.divider()
+    st.subheader("💬 Ask the Lecture")
+    question = st.text_input("Your question", placeholder="e.g. What is supervised learning?", key="q_input")
+
+    if st.button("🔎 Ask", type="primary", key="ask_btn"):
+        if not question.strip():
+            st.warning("Please enter a question.")
+        else:
+            with st.spinner("Thinking..."):
+                try:
+                    answer = ask_lecture(transcript, question)
+                    st.session_state["answer"] = answer
+                except Exception as e:
+                    st.error("❌ Unable to answer.")
+                    st.exception(e)
+
+    if st.session_state.get("answer"):
+        st.write("")
+        st.markdown(f"**💡 Answer:** {st.session_state['answer']}")
 
 
 # How It Works
 st.divider()
 st.markdown('<div class="section-title">⚙️ How It Works</div>', unsafe_allow_html=True)
-
 s1, s2, s3 = st.columns(3)
 with s1:
     st.markdown("### 1️⃣ Upload\nUpload a recorded lecture in MP4, MP3, WAV or M4A format.")
